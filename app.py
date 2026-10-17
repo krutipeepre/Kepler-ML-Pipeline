@@ -38,12 +38,17 @@ X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
 y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
 # Model Training
-model = RandomForestClassifier(n_estimators=300, random_state=42)
-model.fit(X_train, y_train)
+@st.cache_resource
+def train_model(X_tr, y_tr):
+    model = RandomForestClassifier(n_estimators=300, random_state=42)
+    model.fit(X_tr, y_tr)
+    return model
+
+model = train_model(X_train, y_train)
 y_pred = model.predict(X_test)
 f1 = f1_score(y_test, y_pred)
 
-# --- Dashboard Layout ---
+# --- Top Section: Metrics and Predictions ---
 col1, col2 = st.columns(2)
 
 with col1:
@@ -60,4 +65,46 @@ with col2:
     top_candidates = candidates.sort_values(by='Confidence Score', ascending=False)
     st.dataframe(top_candidates[['kepid', 'Confidence Score', 'koi_period', 'koi_prad']].head(10))
 
-st.success("App loaded successfully! You can now explore the predictions.")
+st.markdown("---")
+
+# --- Bottom Section: Insights Required by the Guide ---
+st.header("Model Insights")
+col3, col4 = st.columns(2)
+
+with col3:
+    st.subheader("Feature Importances")
+    st.write("Which features does the model lean on most?[cite: 12]")
+    
+    # Extract and plot feature importances
+    importances = pd.Series(model.feature_importances_, index=FEATURES).sort_values(ascending=True)
+    fig1, ax1 = plt.subplots(figsize=(6, 4))
+    importances.plot.barh(ax=ax1, color='#1f77b4')
+    ax1.set_xlabel("Importance Score")
+    ax1.set_ylabel("Features")
+    st.pyplot(fig1)
+
+with col4:
+    st.subheader("Learning Curve")
+    st.write("How does performance change as the training set shrinks?[cite: 12]")
+    
+    # Calculate learning curve data (cached to prevent slow reloads)
+    @st.cache_data
+    def get_learning_curve_data():
+        train_fractions = [0.10, 0.25, 0.50, 0.75, 1.0]
+        f1_scores = []
+        for frac in train_fractions:
+            n_samples = int(frac * len(X_train))
+            sub_model = RandomForestClassifier(n_estimators=300, random_state=42)
+            sub_model.fit(X_train.iloc[:n_samples], y_train.iloc[:n_samples])
+            f1_scores.append(f1_score(y_test, sub_model.predict(X_test)))
+        return train_fractions, f1_scores
+    
+    fractions, f1_scores = get_learning_curve_data()
+    
+    # Plot learning curve
+    fig2, ax2 = plt.subplots(figsize=(6, 4))
+    ax2.plot([f * 100 for f in fractions], f1_scores, marker='o', linestyle='-', color='#ff7f0e')
+    ax2.set_xlabel("Training Set Size (%)")
+    ax2.set_ylabel("F1 Score")
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    st.pyplot(fig2)
